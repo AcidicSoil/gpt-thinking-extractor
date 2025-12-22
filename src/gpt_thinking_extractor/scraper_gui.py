@@ -2,24 +2,25 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 import threading
 import os
+import sys
 import time
-import re
 import platform
 import subprocess
 from playwright.sync_api import sync_playwright
 from dotenv import load_dotenv
 
+# Relative import for package structure
+try:
+    from .scraper_engine import ScraperEngine
+except ImportError:
+    from scraper_engine import ScraperEngine
+
 # Load environment variables
 load_dotenv()
 
-# --- SCRAPING CONFIGURATION & SELECTORS ---
+# --- CONFIGURATION ---
 CDP_URL_DEFAULT = os.getenv("CHROME_DEBUG_URL", "http://localhost:9222")
 OUTPUT_FOLDER_DEFAULT = os.getenv("OUTPUT_FOLDER", "data")
-
-SIDEBAR_PROJECT_SELECTOR = 'nav a[href*="/project/"]'
-PROJECT_PAGE_THREAD_SELECTOR = 'main a[href*="/c/"]'
-TOGGLE_SELECTOR = 'div.truncate:has-text(re.compile(r"Thought for \d+s"))'
-CONTENT_SELECTOR = 'div.text-token-text-secondary div.markdown.prose'
 
 class ScraperApp:
     def __init__(self, root):
@@ -30,7 +31,7 @@ class ScraperApp:
         # State
         self.is_running = False
         self.stop_event = threading.Event()
-        self.scraped_urls = set()
+        self.engine = None
 
         # --- UI LAYOUT ---
         
@@ -103,6 +104,8 @@ class ScraperApp:
         self.start_btn.config(state="normal")
         self.stop_btn.config(state="disabled")
         self.url_entry.config(state="normal")
+        if self.engine:
+            self.engine.close()
         self.log("--- Process Stopped/Finished ---")
 
     def open_data_folder(self):
@@ -115,23 +118,21 @@ class ScraperApp:
         elif platform.system() == "Darwin":
             subprocess.Popen(["open", folder])
         else:
+            # Basic fallback for Linux
             subprocess.Popen(["xdg-open", folder])
-
-    # --- CORE SCRAPING LOGIC (Adapted for GUI) ---
-    def save_thought_data(self, folder, thread_id, thought_index, text):
-        safe_thread_id = thread_id.split('/')[-1]
-        folder_path = os.path.join(folder, safe_thread_id)
-        os.makedirs(folder_path, exist_ok=True)
-        
-        filename = f"{folder_path}/thought_{thought_index}.txt"
-        with open(filename, "w", encoding="utf-8") as f:
-            f.write(text)
-        self.log(f"  [Saved] {filename}", "success")
 
     def run_scraper(self):
         cdp_url = self.url_entry.get()
         data_folder = self.folder_entry.get()
         
+        # Initialize Engine
+        try:
+            self.engine = ScraperEngine(output_folder=data_folder)
+        except Exception as e:
+            self.log(f"Error initializing engine: {e}", "error")
+            self.root.after(0, self.finish_scraping)
+            return
+
         with sync_playwright() as p:
             try:
                 self.log(f"Connecting to Chrome at {cdp_url}...")
@@ -153,7 +154,8 @@ class ScraperApp:
             
             try:
                 page.wait_for_selector('nav', timeout=5000)
-                project_elements = page.locator(SIDEBAR_PROJECT_SELECTOR).all()
+                sidebar_selector = self.engine.get_selector("SIDEBAR_PROJECT")
+                project_elements = page.locator(sidebar_selector).all()
                 project_urls = []
                 for el in project_elements:
                     href = el.get_attribute("href")
@@ -168,6 +170,8 @@ class ScraperApp:
 
             # --- PHASE 2: GATHER THREADS ---
             all_chat_urls = set()
+            thread_selector = self.engine.get_selector("PROJECT_PAGE_THREAD")
+
             for i, p_url in enumerate(project_urls):
                 if self.stop_event.is_set(): break
                 self.log(f"Scanning Project {i+1}/{len(project_urls)}...", "info")
@@ -177,7 +181,7 @@ class ScraperApp:
                     page.wait_for_load_state("networkidle")
                     time.sleep(1)
                     
-                    thread_links = page.locator(PROJECT_PAGE_THREAD_SELECTOR).all()
+                    thread_links = page.locator(thread_selector).all()
                     count = 0
                     for link in thread_links:
                         url_path = link.get_attribute("href")
@@ -195,7 +199,10 @@ class ScraperApp:
             
             for i, url in enumerate(sorted_urls):
                 if self.stop_event.is_set(): break
-                if url in self.scraped_urls: continue
+                
+                if self.engine.is_url_scraped(url):
+                    self.log(f"Skipping already scraped: {url.split('/')[-1]}", "info")
+                    continue
 
                 self.log(f"[{i+1}/{len(sorted_urls)}] Processing: {url.split('/')[-1]}", "info")
                 
@@ -204,11 +211,15 @@ class ScraperApp:
                     time.sleep(2.5) 
 
                     # Find Toggles
-                    toggles = page.locator(TOGGLE_SELECTOR).all()
+                    toggle_selector = self.engine.get_selector("THOUGHT_TOGGLE")
+                    toggles = page.locator(toggle_selector).all()
+                    
                     if not toggles:
                         self.log("  No thoughts found.", "warning")
                     else:
                         self.log(f"  Found {len(toggles)} thoughts.", "info")
+                        content_selector = self.engine.get_selector("THOUGHT_CONTENT")
+                        
                         for idx, toggle in enumerate(toggles):
                             if self.stop_event.is_set(): break
                             
@@ -219,22 +230,28 @@ class ScraperApp:
                                 time.sleep(0.5)
                             
                             # Scrape
-                            content_loc = page.locator(CONTENT_SELECTOR)
+                            content_loc = page.locator(content_selector)
+                            txt = ""
                             if idx < content_loc.count():
                                 txt = content_loc.nth(idx).inner_text()
-                                self.save_thought_data(data_folder, url, idx, txt)
                             else:
                                 txt = content_loc.last.inner_text()
-                                self.save_thought_data(data_folder, url, idx, txt)
+                            
+                            saved_path = self.engine.save_thought(url, idx, txt)
+                            if saved_path:
+                                self.log(f"  [Saved] {os.path.basename(saved_path)}", "success")
                                 
-                    self.scraped_urls.add(url)
+                    self.engine.mark_url_scraped(url)
                     
                 except Exception as e:
                     self.log(f"  Error on thread: {e}", "error")
 
             self.root.after(0, self.finish_scraping)
 
-if __name__ == "__main__":
+def main():
     root = tk.Tk()
     app = ScraperApp(root)
     root.mainloop()
+
+if __name__ == "__main__":
+    main()

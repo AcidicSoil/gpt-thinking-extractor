@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "gpt-thinking-extractor"
 version = "0.1.0"
@@ -13,3 +17,14 @@ dependencies = [
 dev = [
     "pytest",
 ]
+
+[project.scripts]
+gpt-scrape = "gpt_thinking_extractor.scrape_thoughts_final:run"
+gpt-scrape-gui = "gpt_thinking_extractor.scraper_gui:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gpt_thinking_extractor"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

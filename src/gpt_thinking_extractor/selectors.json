@@ -1,0 +1,6 @@
+{
+  "SIDEBAR_PROJECT": "nav a[href*=\"/project/\"]",
+  "PROJECT_PAGE_THREAD": "main a[href*=\"/c/\"]",
+  "THOUGHT_TOGGLE": "div.truncate:has-text(\"Thought for\")",
+  "THOUGHT_CONTENT": "div.text-token-text-secondary div.markdown.prose"
+}

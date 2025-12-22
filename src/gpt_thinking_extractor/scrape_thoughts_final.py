@@ -1,66 +1,42 @@
 import os
-import re
+import sys
 import time
 from playwright.sync_api import sync_playwright
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
+# Relative import for package structure
+try:
+    from .scraper_engine import ScraperEngine
+except ImportError:
+    from scraper_engine import ScraperEngine
+
+# Load environment variables
 load_dotenv()
 
 # --- CONFIGURATION ---
 DATA_FOLDER = os.getenv("OUTPUT_FOLDER", "data")
 CDP_URL = os.getenv("CHROME_DEBUG_URL", "http://localhost:9222")
 
-# Set to store URLs we have already scraped to prevent duplication
-SCRAPED_URLS = set()
-
-# --- SELECTORS (Derived from screenshots) ---
-
-# 1. Sidebar Project Links
-SIDEBAR_PROJECT_SELECTOR = 'nav a[href*="/project/"]'
-
-# 2. Project Page Thread Links
-# We look inside the 'main' content area for links containing '/c/' (chat threads)
-PROJECT_PAGE_THREAD_SELECTOR = 'main a[href*="/c/"]'
-
-# 3. Thought Toggle Button
-# Matches "Thought for 23s", "Thought for 120s", etc.
-TOGGLE_SELECTOR = 'div.truncate:has-text(re.compile(r"Thought for \d+s"))'
-
-# 4. Thinking Content
-# The text lives inside a markdown div within a secondary text container
-CONTENT_SELECTOR = 'div.text-token-text-secondary div.markdown.prose'
-
-
-def save_thought_data(thread_id, thought_index, text):
-    """Saves the scraped text to a file."""
-    # Creates a clean filename from the chat ID
-    safe_thread_id = thread_id.split('/')[-1]
-    folder_path = os.path.join(DATA_FOLDER, safe_thread_id)
-    os.makedirs(folder_path, exist_ok=True)
-    
-    filename = f"{folder_path}/thought_{thought_index}.txt"
-    with open(filename, "w", encoding="utf-8") as f:
-        f.write(text)
-    print(f"  [Saved] {filename}")
-
-def scrape_page_thoughts(page, thread_url):
+def scrape_page_thoughts(page, thread_url, engine):
     """Scrapes all 'Thought' blocks on the current chat thread page."""
     
-    # Wait for the chat to load (look for the message container)
+    # Wait for the chat to load
     try:
         page.wait_for_selector('div[data-message-author-role="assistant"]', timeout=5000)
     except:
         print("  [Info] Page loaded, but no standard messages found immediately.")
 
-    # Find all "Thought" toggles
-    thought_toggles = page.locator(TOGGLE_SELECTOR).all()
+    # Find all "Thought" toggles using selector from engine
+    toggle_selector = engine.get_selector("THOUGHT_TOGGLE")
+    thought_toggles = page.locator(toggle_selector).all()
 
     if not thought_toggles:
         print("  [Info] No thoughts found in this thread.")
         return
 
     print(f"  [Found] {len(thought_toggles)} thought bubbles.")
+
+    content_selector = engine.get_selector("THOUGHT_CONTENT")
 
     for index, toggle in enumerate(thought_toggles):
         try:
@@ -71,26 +47,28 @@ def scrape_page_thoughts(page, thread_url):
             if toggle.is_visible():
                 toggle.click(force=True)
                 
-            # Small buffer for the expansion animation
+            # Wait for content to appear (better than hard sleep)
             page.wait_for_timeout(600) 
 
             # LOCATE CONTENT
-            content_locator = page.locator(CONTENT_SELECTOR)
+            content_locator = page.locator(content_selector)
             
-            # We assume sequential order (1st toggle opens 1st content block)
             if index < content_locator.count():
                 text_content = content_locator.nth(index).inner_text()
-                save_thought_data(thread_url, index, text_content)
+                saved_path = engine.save_thought(thread_url, index, text_content)
+                if saved_path:
+                    print(f"  [Saved] {saved_path}")
             else:
-                # If indices desync, try grabbing the last visible one
                 text_content = content_locator.last.inner_text()
-                save_thought_data(thread_url, index, text_content)
+                saved_path = engine.save_thought(thread_url, index, text_content)
+                if saved_path:
+                    print(f"  [Saved] {saved_path}")
 
         except Exception as e:
             print(f"  [Error] Failed to scrape thought {index}: {e}")
 
 def run():
-    global SCRAPED_URLS
+    engine = ScraperEngine(output_folder=DATA_FOLDER)
     
     with sync_playwright() as p:
         try:
@@ -106,16 +84,18 @@ def run():
         
         # --- PHASE 1: FIND PROJECTS ---
         print("🔍 Scanning sidebar for projects...")
-        page.wait_for_selector('nav', timeout=5000)
-        
-        # Get all project links
-        project_elements = page.locator(SIDEBAR_PROJECT_SELECTOR).all()
+        try:
+            page.wait_for_selector('nav', timeout=5000)
+        except:
+            print("  [Warning] Nav not found or timed out.")
+
+        sidebar_selector = engine.get_selector("SIDEBAR_PROJECT")
+        project_elements = page.locator(sidebar_selector).all()
         project_urls = []
         
         for el in project_elements:
             href = el.get_attribute("href")
             if href:
-                # Build full URL
                 full_url = "https://chatgpt.com" + href if href.startswith("/") else href
                 if full_url not in project_urls:
                     project_urls.append(full_url)
@@ -124,7 +104,8 @@ def run():
 
         # --- PHASE 2: GATHER CHAT THREADS ---
         all_chat_urls = set()
-        
+        thread_selector = engine.get_selector("PROJECT_PAGE_THREAD")
+
         for i, project_url in enumerate(project_urls):
             print(f"\n--- Scanning Project {i+1}/{len(project_urls)} ---")
             print(f"🔗 Going to: {project_url}")
@@ -133,8 +114,7 @@ def run():
             page.wait_for_load_state("networkidle")
             time.sleep(1.5) # Wait for list to render
             
-            # Find chat links in the MAIN area (ignoring sidebar)
-            thread_links = page.locator(PROJECT_PAGE_THREAD_SELECTOR).all()
+            thread_links = page.locator(thread_selector).all()
             
             found_count = 0
             for link in thread_links:
@@ -149,11 +129,11 @@ def run():
         print(f"\n✅ Total unique chat threads gathered: {len(all_chat_urls)}")
         
         # --- PHASE 3: EXTRACT THOUGHTS ---
-        # Sort urls to make progress predictable
         sorted_urls = sorted(list(all_chat_urls))
         
         for i, url in enumerate(sorted_urls):
-            if url in SCRAPED_URLS:
+            if engine.is_url_scraped(url):
+                print(f"Skipping already scraped: {url}")
                 continue
                 
             print(f"\n--- Scraping Thread {i+1}/{len(sorted_urls)} ---")
@@ -161,12 +141,14 @@ def run():
             
             page.goto(url)
             page.wait_for_load_state("domcontentloaded")
-            time.sleep(2) # Wait for dynamic elements (thought bubbles) to hydrate
+            time.sleep(2) 
             
-            scrape_page_thoughts(page, url)
-            SCRAPED_URLS.add(url)
+            scrape_page_thoughts(page, url, engine)
+            engine.mark_url_scraped(url)
 
         print("\n🎉 All scraping complete.")
+    
+    engine.close()
 
 if __name__ == "__main__":
     run()
