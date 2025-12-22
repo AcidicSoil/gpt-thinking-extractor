@@ -1,6 +1,21 @@
 {
   "SIDEBAR_PROJECT": "nav a[href*=\"/project/\"]",
+  "SIDEBAR_RECENT": "nav a[href*=\"/c/\"]",
+  "SIDEBAR_THREAD": "nav a[href*=\"/c/\"]",
   "PROJECT_PAGE_THREAD": "main a[href*=\"/c/\"]",
-  "THOUGHT_TOGGLE": "div.truncate:has-text(\"Thought for\")",
-  "THOUGHT_CONTENT": "div.text-token-text-secondary div.markdown.prose"
+  "THOUGHT_TOGGLE_CANDIDATES": [
+    "div.truncate:has-text(\"Thought for\")",
+    "button:has-text(\"Thought for\")",
+    "div:has-text(\"Thought for\")",
+    "div:has(svg use[href*=\"b140e7\"])"
+  ],
+  "THOUGHT_CONTAINER_CANDIDATES": [
+    "div.h-full.flex.flex-col.overflow-y-auto",
+    "div.flex.flex-col.overflow-y-auto"
+  ],
+  "THOUGHT_CONTENT": "div.text-token-text-secondary.markdown.prose",
+  "THOUGHT_ROW": "div.relative.flex.w-full.items-start.gap-2",
+  "THOUGHT_TEXT_SECONDARY": "div.text-token-text-secondary",
+  "THOUGHT_CODE_CONTAINER": "div.mt-1",
+  "THOUGHT_CODE_PAYLOAD": "div.text-token-text-primary"
 }

@@ -1,0 +1,17 @@
+Reading documents
+
+Reading documents
+
+I see we have a snippet for the family-drawer component, but to fully understand it, I need to check the AGENTS content. So far, the file search didn't turn up AGENTS.md. I'll refine the search to look specifically for that file name and related terms like "AGENTS session explorer" to locate it.
+
+Reading documents
+
+Still not finding the AGENTS.md content. It looks like the search isn't picking up files from /mnt/data, even though those are supposed to be indexed. I'll try searching specifically for terms like "AGENTS session coach" to get closer to what I'm looking for. It should turn up the correct results.
+
+Reading documents
+
+I’ve finally found the AGENTS.md files. It looks like there might be two versions: one related to "idioms names" and the other focused on "ruler reproduction". They could be different parts of the same file. I’ll need to open and read them completely. I’m considering accessing our container’s filesystem to view the full content directly.
+
+It seems like I only have a glimpse of AGENTS.md so far. I'll need to open more of it, beyond the first 800 lines, to get the complete picture. I'll make sure to show the rest to get all the context I need!
+
+It looks like I've already read all of AGENTS.md, as it ends earlier than expected. The file had about 200 lines, not 800. Now, I'll move on to reading AGENTS.session-coach.md to see what it contains. Let's keep going!

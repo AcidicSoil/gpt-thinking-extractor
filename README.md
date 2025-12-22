@@ -112,6 +112,11 @@ If you want to modify the code or run it without installing:
 - `data/`: Default output directory for extracted thoughts.
 - `scraped_urls.db`: SQLite database tracking processed URLs.
 
+```bash
+/mnt/c/Program\ Files/Google/Chrome/Application/chrome.exe   --remote-debugging-address=0.0.0.0   --remote-debugging-port=9222   --user-data-dir=/tmp/chrome-cdp   --no-first-run --no-default-browser-check
+```
+
+
 ```ps
 & "C:\Program Files\Google\Chrome\Application\chrome.exe" `
   --remote-debugging-address=0.0.0.0 `

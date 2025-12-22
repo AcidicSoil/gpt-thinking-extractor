@@ -1,0 +1,1 @@
+It seems AGENTS.override.md has similar content to src.md, but the file is long and might be truncated. I should confirm that I’m reading it fully. While not necessary to read everything in the response, I'll check key sections quickly — like searching for markers and AGENTS lines — to ensure I've covered all important content.
