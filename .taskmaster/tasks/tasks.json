@@ -1,0 +1,532 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Setup Project Infrastructure and Foundation Layer",
+        "description": "Initialize the Python project structure and implement the foundational modules for configuration, logging, error handling, and type definitions.",
+        "details": "Create the project directory structure as defined in the PRD (`src/foundation`, `tests/`, etc.).\n\n1.  **pyproject.toml**: Define dependencies (`playwright`, `pydantic`, `pytest`, `tk`).\n2.  **foundation/errors.py**: Define custom exception hierarchy: `ScraperError`, `NavigationError`, `SelectorError`, `ExtractionError`, `PersistenceError`. \n3.  **foundation/types.py**: Implement Pydantic models for `ProjectURL`, `ThreadURL`, `SelectorProfile`, `ThoughtBlock`, and `ThreadResult`.\n4.  **foundation/logging.py**: Set up structured logging using the standard `logging` library with support for console and UI sinks (callbacks).\n5.  **foundation/config.py**: Implement configuration loading using `pydantic-settings` or `dotenv`, validating inputs like `CDP_URL` and `OUTPUT_DIR`.",
+        "testStrategy": "Unit tests for configuration validation (valid/invalid env vars) and type serialization. Verify custom errors are raisable and catchable.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Configure Project Dependencies and Packaging",
+            "description": "Initialize the project environment by creating pyproject.toml with necessary dependencies and build system configuration.",
+            "dependencies": [],
+            "details": "Create `pyproject.toml` in the project root. Configure the build backend (e.g., setuptools or poetry). Add run dependencies: `playwright`, `pydantic`, `pydantic-settings`, `pytest`, `tk`. Add dev dependencies: `black`, `isort`, `mypy`. Ensure the python version is specified (e.g., ^3.9).",
+            "status": "pending",
+            "testStrategy": "Run `pip install .` to verify dependency resolution and installation."
+          },
+          {
+            "id": 2,
+            "title": "Implement Custom Exception Hierarchy",
+            "description": "Create a unified error handling module to manage specific failure modes across the scraping pipeline.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create `src/foundation/errors.py`. Define a base `AppError` (inheriting from Exception). Implement specific subclasses: `ScraperError`, `NavigationError`, `SelectorError`, `ExtractionError`, and `PersistenceError`. Ensure each exception accepts an optional original exception and message context.",
+            "status": "pending",
+            "testStrategy": "Unit test verifying that exceptions can be raised, caught, and contain expected messages/types."
+          },
+          {
+            "id": 3,
+            "title": "Define Data Models with Pydantic",
+            "description": "Establish the core data structures using Pydantic to ensure type safety and data validation throughout the application.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create `src/foundation/types.py`. Implement models for: `ProjectURL` (url validation), `ThreadURL` (url, parent_project_id), `SelectorProfile` (css selectors for toggles/content), `ThoughtBlock` (id, content, ordering), and `ThreadResult` (thread_id, list of thoughts).",
+            "status": "pending",
+            "testStrategy": "Unit tests validating correct schema enforcement (e.g., rejecting invalid URLs) and successful JSON serialization."
+          },
+          {
+            "id": 4,
+            "title": "Implement Structured Logging Module",
+            "description": "Set up a centralized logging facility that supports standard console output and hooks for the future UI component.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create `src/foundation/logging.py`. key function `setup_logging(level, ui_callback=None)`. Configure the root logger with a standardized formatter. Implement a custom Handler or Filter to route specific log records to the `ui_callback` if provided, allowing real-time UI updates.",
+            "status": "pending",
+            "testStrategy": "Unit test capturing stderr to verify format. Mock the ui_callback and verify it receives log records."
+          },
+          {
+            "id": 5,
+            "title": "Create Configuration Loader",
+            "description": "Implement environment-based configuration management to handle settings like CDP URLs and output paths.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create `src/foundation/config.py`. Define a `Settings` class using `pydantic-settings`. Define fields: `CDP_URL` (default: http://localhost:9222), `OUTPUT_DIR` (path validation), `HEADLESS` (bool), `TIMEOUT_MS` (int). Ensure it reads from `.env` files automatically.",
+            "status": "pending",
+            "testStrategy": "Unit test by setting environment variables temporarily and asserting `Settings` instance values match."
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Implement Browser Connectivity via CDP",
+        "description": "Develop the module responsible for attaching Playwright to an existing authenticated Chromium session via the Chrome DevTools Protocol (CDP).",
+        "details": "Implement `browser/cdp_attach.py`.\n\n1.  Create `attach(cdp_url) -> (browser, context, page)`.\n2.  Use `playwright.chromium.connect_over_cdp(cdp_url)`.\n3.  Implement logic to iterate through `context.pages` to find the active/target tab based on URL patterns or create a new one if necessary.\n4.  Implement `browser/page_waits.py` with standard wait helpers: `wait_for_hydration`, `wait_for_network_idle`.\n5.  Add session validation logic to fail fast if the browser is not authenticated.",
+        "testStrategy": "Integration test requiring a locally running Chrome instance with `--remote-debugging-port`. Mock the Playwright connection for unit tests.",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Establish CDP Connection and Validate Session",
+            "description": "Implement the core connection logic to an existing Chromium instance via CDP and verify authentication status.",
+            "dependencies": [],
+            "details": "Create `browser/cdp_attach.py`. Use `playwright.chromium.connect_over_cdp(cdp_url)` to establish the link. Implement a preliminary check (e.g., checking specific cookies or a dashboard element) to validate that the browser session is authenticated. If the session is unauthenticated, the process should fail immediately with a descriptive error.",
+            "status": "pending",
+            "testStrategy": "Unit test by mocking the CDP endpoint to verify connection handling. Integration test against a local Chrome instance to confirm authentication validation logic."
+          },
+          {
+            "id": 2,
+            "title": "Implement Page Context Management and Wait Helpers",
+            "description": "Develop logic to select the correct browser tab and implement standard synchronization helpers.",
+            "dependencies": [
+              1
+            ],
+            "details": "Extend `browser/cdp_attach.py` to iterate through `context.pages` to find a tab matching the target URL pattern; if none exist, create a new page. Create `browser/page_waits.py` and implement `wait_for_hydration` and `wait_for_network_idle` to ensure page stability before interaction. Return the fully initialized `(browser, context, page)` tuple.",
+            "status": "pending",
+            "testStrategy": "Integration test with a live browser instance containing multiple open tabs to verify correct tab selection. Test wait helpers against a fixture page simulating dynamic loading."
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Develop Selector Profile and Matcher Logic",
+        "description": "Create the flexible selector management system to handle DOM variations and define how elements are located.",
+        "details": "Implement `selectors/profiles.py` and `selectors/matchers.py`.\n\n1.  **profiles.py**: Define the schema for selector profiles (JSON/Dict) containing locators for projects, threads, toggles, and content.\n2.  **matchers.py**: Implement functions that take a `Page` and a `Profile` to return Playwright Locators.\n    *   `project_links(page, profile)`\n    *   `thread_links(page, profile)`\n    *   `thought_toggles(page, profile)` (using text matching 'Thought for' or regex)\n3.  Include fallback logic: if a specific CSS selector fails, try generic text-based matching (e.g., `page.get_by_text(...)`).",
+        "testStrategy": "Unit tests using static HTML fixtures to verify that locators correctly target expected elements.",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define Selector Schema and Default Profile",
+            "description": "Create the data structures for defining selector profiles, including a default implementation for the current target site structure.",
+            "dependencies": [],
+            "details": "Create `selectors/profiles.py`. Define a dictionary or Pydantic model structure representing the selector hierarchy (projects, threads, toggles, content). Implement a `DEFAULT_PROFILE` constant containing the known CSS/XPath selectors (e.g., specific classes for project links, 'Thought for' text for toggles).",
+            "status": "pending",
+            "testStrategy": "Unit test to verify the default profile matches the expected schema structure."
+          },
+          {
+            "id": 2,
+            "title": "Implement Base Matcher Logic",
+            "description": "Develop the core functions to retrieve Playwright locators based on the provided profile configuration.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create `selectors/matchers.py`. Implement functions `get_project_locators(page, profile)` and `get_thread_locators(page, profile)`. These should accept a Playwright Page object and a profile dict, returning the appropriate Locators for navigation elements.",
+            "status": "pending",
+            "testStrategy": "Unit tests using a mock Page object to verify correct Locator creation based on profile inputs."
+          },
+          {
+            "id": 3,
+            "title": "Implement Thought Toggle Matchers",
+            "description": "Create specific matching logic for finding thought toggles, utilizing text-based strategies as primary or fallback methods.",
+            "dependencies": [
+              2
+            ],
+            "details": "Add `get_thought_toggle_locators(page, profile)` to `selectors/matchers.py`. This needs to handle the dynamic nature of 'Thought for X seconds' text. Implement logic to construct locators using `page.get_by_text()` or regex matching defined in the profile.",
+            "status": "pending",
+            "testStrategy": "Unit tests with mock pages simulating various 'Thought for...' text patterns."
+          },
+          {
+            "id": 4,
+            "title": "Implement Robust Fallback Mechanism",
+            "description": "Add logic to retry selector retrieval with alternative strategies if the primary specific selectors fail to find elements.",
+            "dependencies": [
+              2,
+              3
+            ],
+            "details": "Enhance `matchers.py`. If a specific CSS class selector defined in the profile returns no elements (or during a specific 'safe_locate' check), fallback to more generic strategies like `get_by_role` or broad text matching as defined in a 'fallback' section of the profile.",
+            "status": "pending",
+            "testStrategy": "Unit tests simulating primary selector failure and verifying fallback selector usage."
+          },
+          {
+            "id": 5,
+            "title": "Create Selector Validation Utility",
+            "description": "Develop a utility to validate that a given profile works against a provided HTML snippet or live page for debugging.",
+            "dependencies": [
+              2,
+              3
+            ],
+            "details": "Add a function `validate_profile(page, profile)` in `selectors/validation.py` (or appended to `matchers.py`). It should attempt to resolve all high-level selectors (projects list, thread list) and report which parts of the profile fail to match any elements. Useful for quick diagnostics.",
+            "status": "pending",
+            "testStrategy": "Integration test against a static HTML fixture representing the target site."
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Implement Project and Thread Discovery",
+        "description": "Build the discovery layer to navigate the application and enumerate all available projects and their contained threads.",
+        "details": "Implement `discovery/projects.py` and `discovery/threads.py`.\n\n1.  **projects.py**: Navigate to the base URL, wait for the project list to load, and extract all project links. Handle 'See more' expansion if present.\n2.  **threads.py**: For a given project URL, navigate to it and extract all thread URLs from the main content area. Implement deduplication logic (using `set` of URLs).\n3.  Normalize URLs (resolve relative paths to absolute).\n4.  Integrate `browser/page_waits.py` to ensure lists are fully loaded before scraping.",
+        "testStrategy": "Integration tests against a mock server or fixture pages simulating project/thread lists, including pagination/virtualization scenarios.",
+        "priority": "medium",
+        "dependencies": [
+          2,
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Project List Discovery",
+            "description": "Develop the logic to navigate to the base URL, handle UI loading states, and extract all available project links.",
+            "dependencies": [],
+            "details": "Implement `discovery/projects.py`. Define `get_projects(page, profile)` to navigate to the root URL. Integrate `browser/page_waits.py` to ensure the DOM is hydrated. Implement logic to detect and click 'See more' buttons or similar expansion triggers to ensure the full list is visible before parsing `href` attributes.",
+            "status": "pending",
+            "testStrategy": "Mock the project list page with a static HTML fixture containing multiple project links and a 'See more' button. Verify all links are extracted."
+          },
+          {
+            "id": 2,
+            "title": "Implement Thread Enumeration with Pagination",
+            "description": "Create the functionality to visit specific project pages and extract thread URLs, specifically handling infinite scroll or pagination.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement `discovery/threads.py`. Define `get_threads(page, project_url, profile)`. Include a mechanism to handle dynamic content loading, such as a `while` loop that scrolls to the bottom of the page (`window.scrollTo`) and waits for network idle until no new content appears, then extracts thread locators.",
+            "status": "pending",
+            "testStrategy": "Serve a mock project page with a large list of threads requiring scrolling to load more. Verify that the scraper captures the total count correctly."
+          },
+          {
+            "id": 3,
+            "title": "Implement URL Normalization and Deduplication Logic",
+            "description": "Build utility functions to resolve relative paths to absolute URLs and ensure dataset uniqueness, backed by unit tests.",
+            "dependencies": [
+              2
+            ],
+            "details": "Create `discovery/utils.py` or add to existing modules. Implement `normalize_url(base, link)` using `urllib.parse.urljoin` to handle relative paths (e.g., `/thread/123`). Implement `deduplicate_links(links)` using a Python `set` to remove redundant entries. Create `tests/test_discovery_utils.py` to validate these functions.",
+            "status": "pending",
+            "testStrategy": "Unit tests providing a list of mixed relative/absolute and duplicate URLs to ensure the output is a sorted, unique list of absolute strings."
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Implement Thought Toggle Extraction Logic",
+        "description": "Develop the core logic to find expandable thought blocks, interact with them, and extract the revealed content.",
+        "details": "Implement `extraction/toggles.py` and `extraction/content.py`.\n\n1.  **toggles.py**: `list_toggles(page)` finds all elements matching the 'Thought for X' pattern. `expand_toggle(locator)` clicks the toggle.\n2.  **content.py**: `extract_text(locator)` retrieves the inner text of the expanded block.\n3.  Implement the interaction flow:\n    *   Locate toggle -> Click -> Wait for expansion animation/DOM update -> Locate content -> Extract text.\n4.  Handle timeouts gracefully (e.g., if a click doesn't result in visible content).",
+        "testStrategy": "E2E style test on a fixture page with interactive expanders. Verify text extraction accuracy and handling of already-expanded items.",
+        "priority": "high",
+        "dependencies": [
+          2,
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Toggle Identification Logic",
+            "description": "Develop the strategy in `toggles.py` to robustly identify and list all expandable thought toggle elements on a page.",
+            "dependencies": [],
+            "details": "Implement the `list_toggles(page)` function in `extraction/toggles.py`. This function should use Playwright locators to find elements matching the 'Thought for X' pattern or specific CSS classes indicative of an expander. It must return a list of locators ready for interaction and handle cases where no toggles are present.",
+            "status": "pending",
+            "testStrategy": "Unit test against a static HTML fixture containing multiple toggle elements to verify correct identification count."
+          },
+          {
+            "id": 2,
+            "title": "Develop Toggle Interaction and Wait Mechanisms",
+            "description": "Implement the logic to click toggles and precisely wait for the resulting DOM changes or animations to complete.",
+            "dependencies": [
+              1
+            ],
+            "details": "In `extraction/toggles.py`, implement `expand_toggle(locator)`. This function must perform a click action and immediately await the necessary DOM update (e.g., `aria-expanded` state change or visibility of the child content div) to prevent race conditions. Include error handling for timeouts if the toggle is unresponsive.",
+            "status": "pending",
+            "testStrategy": "Integration test using a mock page with CSS transitions to ensure the code waits for the full expansion before returning control."
+          },
+          {
+            "id": 3,
+            "title": "Implement Content Text Extraction",
+            "description": "Develop the logic to extract, clean, and validate text from the revealed thought blocks after expansion.",
+            "dependencies": [
+              2
+            ],
+            "details": "Implement `extraction/content.py` with the `extract_text(locator)` function. This function should target the revealed content container, retrieve the inner text, perform whitespace normalization/sanitization, and return the clean string. Ensure it handles empty or malformed content blocks gracefully.",
+            "status": "pending",
+            "testStrategy": "Unit test with various HTML snippets (nested tags, special characters) to verify text is extracted and cleaned correctly."
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Implement Deterministic Mapping and Content Association",
+        "description": "Ensure that clicked toggles are correctly mapped to their corresponding content blocks, handling dynamic DOM changes.",
+        "details": "Implement `extraction/mapping.py`.\n\n1.  Create `map_toggle_to_content(toggle_index, content_locators)`.\n2.  Implement a positional strategy: assuming the content block appears immediately following the toggle in the DOM tree or matches a specific index order.\n3.  Add verification: check if the extracted content seems valid (non-empty).\n4.  If the number of toggles and content blocks mismatch, trigger a fallback strategy (e.g., re-scan DOM) or log a warning.",
+        "testStrategy": "Unit tests with DOM structures where toggles and content are interleaved. Test edge cases where one might fail to expand.",
+        "priority": "medium",
+        "dependencies": [
+          5
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Develop Toggle-Content Mapping Heuristics",
+            "description": "Implement the core algorithms in `extraction/mapping.py` to deterministically associate thought toggles with their revealed content blocks based on DOM position.",
+            "dependencies": [
+              5
+            ],
+            "details": "Create the `map_toggle_to_content` function. Implement the primary heuristic: index-based matching assuming a synchronized list of toggles and content containers. Implement a secondary heuristic: DOM traversal to find the immediate sibling or next matching selector relative to the toggle element. Ensure the function accepts a list of locators and returns a list of mapped pairs.",
+            "status": "pending",
+            "testStrategy": "Unit tests with mocked DOM trees representing standard success scenarios (flat lists) and nested structures to ensure correct pairing."
+          },
+          {
+            "id": 2,
+            "title": "Implement Mapping Validation and Fallback Logic",
+            "description": "Add verification steps to the mapping process to detect misalignment or empty content, triggering fallback procedures when necessary.",
+            "dependencies": [
+              1
+            ],
+            "details": "Extend `extraction/mapping.py` to validate extracted pairs. Check if the content block is non-empty or visible after expansion. Verify that the number of toggles matches the number of content blocks. If a discrepancy is found, implement logic to return a status flag or raise an exception that triggers a DOM re-scan.",
+            "status": "pending",
+            "testStrategy": "Unit tests using 'broken' DOM states (e.g., missing content for a toggle) to verify that the validation logic correctly identifies the error and triggers the fallback path."
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Build Persistence and Manifest Layer",
+        "description": "Implement the file system writer and state tracking to save results and support resuming interrupted runs.",
+        "details": "Implement `export/filesystem.py` and `export/manifest.py`.\n\n1.  **filesystem.py**: `write_thought_block` should create `data/<thread_id>/thought_<n>.txt`. Ensure directory creation is safe/recursive. Sanitize `thread_id` for filesystem compatibility.\n2.  **manifest.py**: Load/Save a JSONL or JSON file tracking processed threads (`{url: string, status: 'completed' | 'failed', timestamp: string}`).\n3.  Implement logic to check the manifest before processing a thread to skip duplicates.",
+        "testStrategy": "Unit tests for file I/O (using `tmp_path` fixture) and manifest updates. Verify that re-running does not overwrite existing valid data if configured to resume.",
+        "priority": "medium",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Filesystem Utilities and Path Sanitization",
+            "description": "Create the export/filesystem.py module to handle safe directory creation and file writing operations.",
+            "dependencies": [],
+            "details": "Implement `export/filesystem.py`. Create a helper function `sanitize_filename(name: str) -> str` to make strings safe for directory names. Implement `ensure_directory_exists(path: Path)` to recursively create directories. Implement `get_thread_directory(base_path: Path, thread_id: str) -> Path` which combines sanitization and directory creation.",
+            "status": "pending",
+            "testStrategy": "Unit tests using `tmp_path` to verify directory creation and string sanitization against edge cases (slashes, null bytes)."
+          },
+          {
+            "id": 2,
+            "title": "Implement Thought Block Writer",
+            "description": "Add logic to write individual thought blocks to the filesystem with sequential naming.",
+            "dependencies": [
+              1
+            ],
+            "details": "Extend `export/filesystem.py` with `write_thought_block(thread_dir: Path, index: int, content: str)`. This function should generate filenames like `thought_{index}.txt` inside the provided `thread_dir`. Include error handling for disk write permission issues.",
+            "status": "pending",
+            "testStrategy": "Unit tests verifying file content and naming conventions."
+          },
+          {
+            "id": 3,
+            "title": "Initialize Manifest System",
+            "description": "Create the export/manifest.py module and implement logic to load or initialize the tracking file.",
+            "dependencies": [],
+            "details": "Implement `export/manifest.py`. Define a `Manifest` class or module-level functions. Implement `load_manifest(path: Path) -> Dict` that reads a JSONL or JSON file. If the file does not exist, return an empty tracking structure. Define the schema for the manifest entries (url, status, timestamp).",
+            "status": "pending",
+            "testStrategy": "Test loading existing JSON files and handling missing files gracefully."
+          },
+          {
+            "id": 4,
+            "title": "Implement Manifest State Management",
+            "description": "Add functionality to update the status of threads in the manifest.",
+            "dependencies": [
+              3
+            ],
+            "details": "In `export/manifest.py`, implement `update_thread_status(manifest_path: Path, url: str, status: str)`. This should append or update the entry for the given URL with the new status (e.g., 'completed', 'failed') and the current ISO timestamp. Ensure atomic writes or safe appending (JSONL preferred for crash safety).",
+            "status": "pending",
+            "testStrategy": "Test adding new entries and updating existing ones, verifying persistence to disk."
+          },
+          {
+            "id": 5,
+            "title": "Implement Duplicate Checking Logic",
+            "description": "Create a query function to check if a specific thread URL has already been processed.",
+            "dependencies": [
+              4
+            ],
+            "details": "In `export/manifest.py`, implement `is_thread_processed(manifest_path: Path, url: str) -> bool`. It should read the current state and return True only if the URL exists and the status is 'completed'. This allows the main loop to skip duplicates.",
+            "status": "pending",
+            "testStrategy": "Unit tests verifying that completed threads return True, while failed or missing threads return False."
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Develop Core Orchestration Logic",
+        "description": "Combine discovery, extraction, and persistence into a coherent execution loop that manages the scraping lifecycle.",
+        "details": "Implement `orchestration/runner.py` and `orchestration/resume.py`.\n\n1.  Define the main loop: `Connect -> Discover Projects -> Loop Projects -> Discover Threads -> Loop Threads -> Extract Thoughts -> Save`.\n2.  Integrate error handling: wrap thread processing in `try/catch` to log errors without crashing the entire run.\n3.  Integrate `resume.py` to filter out already completed threads based on the manifest.\n4.  Emit structured events to the logger for UI consumption.",
+        "testStrategy": "Integration test mocking the browser layer to verify the control flow, error handling, and manifest updating logic.",
+        "priority": "high",
+        "dependencies": [
+          4,
+          6,
+          7
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Main Orchestration Loop",
+            "description": "Develop the central execution loop in `runner.py` that ties together browser connection, project discovery, thread iteration, and extraction.",
+            "dependencies": [],
+            "details": "Create `orchestration/runner.py`. Implement the `run` function which initiates the browser connection via CDP. Build the nested loop structure: iterate through projects found via `discovery.get_projects`, then iterate through threads via `discovery.get_threads`. For each thread, invoke the extraction logic and pass the result to the persistence layer.",
+            "status": "pending",
+            "testStrategy": "Mock the discovery, extraction, and persistence modules. Verify that the runner calls these functions in the correct order and passes data correctly."
+          },
+          {
+            "id": 2,
+            "title": "Implement Resume and Skip Logic",
+            "description": "Create the `resume.py` module to prevent re-scraping completed threads by checking the existing manifest.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement `orchestration/resume.py` containing logic to load the persistence manifest. Modify the main loop in `runner.py` to check `resume.is_completed(thread_url)` before processing. If true, skip the extraction step for that thread and log a skip event.",
+            "status": "pending",
+            "testStrategy": "Create a mock manifest with specific thread URLs marked as done. Run the orchestrator and verify that the mocked extraction function is NOT called for those URLs."
+          },
+          {
+            "id": 3,
+            "title": "Integrate Global Error Handling and Event Emission",
+            "description": "Add robust error boundaries around processing units and implement a structured event system for UI updates.",
+            "dependencies": [
+              1
+            ],
+            "details": "Wrap the per-thread processing logic in `runner.py` with `try/except` blocks to catch `ScraperError` and generic exceptions. Ensure exceptions are logged but do not crash the main loop. Implement a structured logging callback system (or generator yield) to emit events like `THREAD_START`, `THREAD_ERROR`, and `THREAD_COMPLETE` for UI consumption.",
+            "status": "pending",
+            "testStrategy": "Inject a mock error into the extraction process for one thread. Verify that the runner logs the error, emits an error event, and proceeds to process the next thread successfully."
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Create Command Line Interface (CLI)",
+        "description": "Expose the orchestration logic via a CLI tool for headless or automated operation.",
+        "details": "Implement `ui/cli.py`.\n\n1.  Use `argparse` or `click` to define arguments: `--cdp-url`, `--output-dir`, `--config-file`, `--profile`.\n2.  Wire arguments to `foundation.config`.\n3.  Invoke `orchestration.runner.run()`.\n4.  Ensure exit codes are correct (0 for success, non-zero for critical failures).",
+        "testStrategy": "Test invoking the script via subprocess with various arguments to ensure it parses correctly and starts the runner.",
+        "priority": "medium",
+        "dependencies": [
+          8
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define CLI Arguments and Parsing Logic",
+            "description": "Implement the argument parsing structure using `argparse` to handle all required CLI flags.",
+            "dependencies": [],
+            "details": "Create `ui/cli.py` and implement a function (e.g., `parse_args()`) that sets up `argparse.ArgumentParser`. Define the following arguments: `--cdp-url` (string, required/default), `--output-dir` (string), `--config-file` (string), `--profile` (string). Ensure help strings are descriptive.",
+            "status": "pending",
+            "testStrategy": "Unit test `parse_args` by passing mock sys.argv lists and asserting the returned Namespace object contains expected values."
+          },
+          {
+            "id": 2,
+            "title": "Implement Configuration Integration",
+            "description": "Bridge the parsed CLI arguments with the application's configuration system.",
+            "dependencies": [
+              1
+            ],
+            "details": "In `ui/cli.py`, create a function that takes the parsed arguments object and updates or overrides the settings in `foundation.config`. If a config file is provided via `--config-file`, load it first, then override with specific command-line flags like `--cdp-url`.",
+            "status": "pending",
+            "testStrategy": "Mock `foundation.config` and verify that values are updated correctly based on the parsed arguments."
+          },
+          {
+            "id": 3,
+            "title": "Wire Orchestration Runner",
+            "description": "Connect the CLI entry point to the main orchestration logic.",
+            "dependencies": [
+              2
+            ],
+            "details": "Import `orchestration.runner` in `ui/cli.py`. Create a `main()` function that calls `parse_args()`, initializes configuration, and then invokes `orchestration.runner.run()` with the appropriate parameters derived from the config.",
+            "status": "pending",
+            "testStrategy": "Mock `orchestration.runner.run` and verify it is called with the correct parameters when `main()` is executed."
+          },
+          {
+            "id": 4,
+            "title": "Implement Error Handling and Exit Codes",
+            "description": "Ensure the CLI handles exceptions gracefully and returns appropriate system exit codes.",
+            "dependencies": [
+              3
+            ],
+            "details": "Wrap the `main()` execution block in a try-except structure. Catch known exceptions (e.g., `ScraperError` from `foundation.errors`), print user-friendly error messages to stderr, and exit with non-zero codes (e.g., `sys.exit(1)`). Return `sys.exit(0)` on success.",
+            "status": "pending",
+            "testStrategy": "Test running the main function where exceptions are raised, verifying `SystemExit` is called with the expected code and error messages are printed."
+          },
+          {
+            "id": 5,
+            "title": "Create Entry Point Script",
+            "description": "Make the CLI executable as a module or script.",
+            "dependencies": [
+              4
+            ],
+            "details": "Add the `if __name__ == '__main__':` block to `ui/cli.py` invoking `main()`. Additionally, consider adding a `__main__.py` to the package root or `ui` package if intended to be run via `python -m src.ui.cli`.",
+            "status": "pending",
+            "testStrategy": "Execute the script via `subprocess.run` in a test environment to confirm it starts and prints the help message."
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Develop Desktop GUI Runner",
+        "description": "Build a Tkinter-based GUI to allow non-technical users to operate the scraper comfortably.",
+        "details": "Implement `ui/gui_tk.py`.\n\n1.  Create a main window with input fields for CDP URL and Output Folder.\n2.  Add 'Start' and 'Stop' buttons.\n3.  Implement a scrolling text area for logs.\n4.  **Threading**: Run `orchestration.runner.run` in a separate `threading.Thread` to avoid freezing the UI.\n5.  **Callbacks**: Use a thread-safe queue or `root.after()` calls to pass log events from the scraper thread to the Tkinter text widget update method.",
+        "testStrategy": "Manual testing of UI responsiveness. Unit tests for the specific logic that bridges the logger and the UI queue.",
+        "priority": "low",
+        "dependencies": [
+          8
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Basic Tkinter GUI Layout",
+            "description": "Create the main Tkinter window structure containing input fields, control buttons, and a logging display area.",
+            "dependencies": [],
+            "details": "In `ui/gui_tk.py`, initialize `tk.Tk()`. Add `tk.Label` and `tk.Entry` widgets for 'CDP URL' and 'Output Folder'. Add `tk.Button` widgets for 'Start' and 'Stop'. Implement a `ScrolledText` widget for log output. Configure the layout using grid or pack geometry managers to ensure widgets align correctly.",
+            "status": "pending",
+            "testStrategy": "Manual execution of the script to verify window geometry, widget placement, and resizing behavior."
+          },
+          {
+            "id": 2,
+            "title": "Implement Thread-Safe UI Logging Mechanism",
+            "description": "Develop a mechanism to bridge the Python logging system with the Tkinter event loop using a thread-safe queue to prevent crashing.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create a `QueueHandler` (subclassing `logging.Handler`) that pushes records to a `queue.Queue`. Implement a `poll_queue` method in the GUI class using `root.after()` to recursively check for new log messages and insert them into the `ScrolledText` widget safely.",
+            "status": "pending",
+            "testStrategy": "Unit test verifying that messages pushed to the queue are correctly dequeued and appended to the Tkinter Text widget without freezing."
+          },
+          {
+            "id": 3,
+            "title": "Implement Start/Stop Logic and Background Threading",
+            "description": "Connect UI controls to the orchestration runner, executing the scraping process in a separate background thread to keep the UI responsive.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Bind the Start button to a function that validates inputs and spawns a `threading.Thread` targeting `orchestration.runner.run`. Bind the Stop button to a cancellation token or flag mechanism. Ensure UI buttons are disabled/enabled appropriately based on the running state.",
+            "status": "pending",
+            "testStrategy": "Manual responsiveness test: Ensure the UI window can be moved and interacted with while the 'scraper' (or a mock sleep function) is running in the background."
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "created": "2025-12-22T15:06:25.181Z",
+      "updated": "2025-12-22T15:06:25.181Z",
+      "description": "Tasks for master context"
+    }
+  }
+}

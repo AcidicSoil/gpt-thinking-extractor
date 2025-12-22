@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "code": "codefetch -t 5 --exclude-dir .venv,node_modules,.ruler,.cursor,.taskmaster --exclude-files \"*.test.ts\",*.md, -o src.md"
+  },
+  "devDependencies": {
+    "codefetch": "^2.2.0"
+  }
+}

@@ -1,0 +1,15 @@
+[project]
+name = "gpt-thinking-extractor"
+version = "0.1.0"
+description = "Tools to scrape and extract thinking process data from ChatGPT threads"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "playwright>=1.40.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
