@@ -27,3 +27,4 @@ node_modules/
 # Other
 public
 .venv
+codefetch

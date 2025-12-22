@@ -40,7 +40,6 @@ Project Structure:
 ├── .cursorignore
 ├── .python-version
 ├── codefetch.config.mjs
-├── main.py
 ├── package.json
 ├── pyproject.toml
 ├── scrape_thoughts_final.py
@@ -75,16 +74,6 @@ export default {
 };
 ```
 
-main.py
-```
-def main():
-    print("Hello from gpt-thinking-extractor!")
-
-
-if __name__ == "__main__":
-    main()
-```
-
 package.json
 ```
 {
@@ -107,6 +96,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "playwright>=1.40.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -121,10 +111,15 @@ import os
 import re
 import time
 from playwright.sync_api import sync_playwright
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # --- CONFIGURATION ---
-DATA_FOLDER = "data"
-CDP_URL = "http://localhost:9222"
+DATA_FOLDER = os.getenv("OUTPUT_FOLDER", "data")
+CDP_URL = os.getenv("CHROME_DEBUG_URL", "http://localhost:9222")
+
 # Set to store URLs we have already scraped to prevent duplication
 SCRAPED_URLS = set()
 
@@ -210,7 +205,7 @@ def run():
         try:
             browser = p.chromium.connect_over_cdp(CDP_URL)
         except Exception:
-            print("❌ Could not connect. Run Chrome with: --remote-debugging-port=9222")
+            print(f"❌ Could not connect to {CDP_URL}. Run Chrome with: --remote-debugging-port=9222")
             return
 
         context = browser.contexts[0]
@@ -297,9 +292,15 @@ import re
 import platform
 import subprocess
 from playwright.sync_api import sync_playwright
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # --- SCRAPING CONFIGURATION & SELECTORS ---
-CDP_URL_DEFAULT = "http://localhost:9222"
+CDP_URL_DEFAULT = os.getenv("CHROME_DEBUG_URL", "http://localhost:9222")
+OUTPUT_FOLDER_DEFAULT = os.getenv("OUTPUT_FOLDER", "data")
+
 SIDEBAR_PROJECT_SELECTOR = 'nav a[href*="/project/"]'
 PROJECT_PAGE_THREAD_SELECTOR = 'main a[href*="/c/"]'
 TOGGLE_SELECTOR = 'div.truncate:has-text(re.compile(r"Thought for \d+s"))'
@@ -329,7 +330,7 @@ class ScraperApp:
 
         ttk.Label(config_frame, text="Output Folder:").grid(row=1, column=0, sticky="w")
         self.folder_entry = ttk.Entry(config_frame, width=30)
-        self.folder_entry.insert(0, "data")
+        self.folder_entry.insert(0, OUTPUT_FOLDER_DEFAULT)
         self.folder_entry.grid(row=1, column=1, padx=5, sticky="ew")
         
         # 2. Control Frame
@@ -545,6 +546,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "playwright" },
+    { name = "python-dotenv" },
 ]
 
 [package.optional-dependencies]
@@ -556,6 +558,7 @@ dev = [
 requires-dist = [
     { name = "playwright", specifier = ">=1.40.0" },
     { name = "pytest", marker = "extra == 'dev'" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
 ]
 provides-extras = ["dev"]
 
@@ -671,6 +674,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d1/db/7ef3487e0fb0049ddb5ce41d3a49c235bf9ad299b6a25d5780a89f19230f/pytest-9.0.2.tar.gz", hash = "sha256:75186651a92bd89611d1d9fc20f0b4345fd827c41ccd5c299a868a05d70edf11", size = 1568901, upload-time = "2025-12-06T21:30:51.014Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3b/ab/b3226f0bd7cdcf710fbede2b3548584366da3b19b5021e74f5bde2a8fa3f/pytest-9.0.2-py3-none-any.whl", hash = "sha256:711ffd45bf766d5264d487b917733b453d917afd2b0ad65223959f59089f875b", size = 374801, upload-time = "2025-12-06T21:30:49.154Z" },
+]
+
+[[package]]
+name = "python-dotenv"
+version = "1.2.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f0/26/19cadc79a718c5edbec86fd4919a6b6d3f681039a2f6d66d14be94e75fb9/python_dotenv-1.2.1.tar.gz", hash = "sha256:42667e897e16ab0d66954af0e60a9caa94f0fd4ecf3aaf6d2d260eec1aa36ad6", size = 44221, upload-time = "2025-10-26T15:12:10.434Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/14/1b/a298b06749107c305e1fe0f814c6c74aea7b2f1e10989cb30f544a1b3253/python_dotenv-1.2.1-py3-none-any.whl", hash = "sha256:b81ee9561e9ca4004139c6cbba3a238c32b03e4894671e181b671e8cb8425d61", size = 21230, upload-time = "2025-10-26T15:12:09.109Z" },
 ]
 
 [[package]]
