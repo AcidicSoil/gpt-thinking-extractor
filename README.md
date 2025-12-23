@@ -111,3 +111,7 @@ If you want to modify the code or run it without installing:
 - `tests/`: Unit tests.
 - `data/`: Default output directory for extracted thoughts.
 - `scraped_urls.db`: SQLite database tracking processed URLs.
+
+```bash
+NO_COLOR=1 FORCE_COLOR=0 TERM=dumb gpt-scrape-gui -- --run --reporter=verbose 2>&1 | tee gpt-scrape-gui.txt
+```
