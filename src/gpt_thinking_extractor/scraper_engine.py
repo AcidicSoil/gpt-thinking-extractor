@@ -34,7 +34,8 @@ class ScraperEngine:
             ],
             "THOUGHT_CONTAINER_CANDIDATES": [
                 "div.h-full.flex.flex-col.overflow-y-auto",
-                "div.flex.flex-col.overflow-y-auto"
+                "div.flex.flex-col.overflow-y-auto",
+                "div[role='dialog'] div.overflow-y-auto"
             ],
             "THOUGHT_ROW": "div.relative.flex.w-full.items-start.gap-2",
             "THOUGHT_TEXT_SECONDARY": "div.text-token-text-secondary",
@@ -54,6 +55,7 @@ class ScraperEngine:
     def _init_db(self):
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.cursor = self.conn.cursor()
+        
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS scraped_urls (
                 url TEXT PRIMARY KEY,
@@ -61,6 +63,15 @@ class ScraperEngine:
                 scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        
+        self.cursor.execute("PRAGMA table_info(scraped_urls)")
+        columns = [row[1] for row in self.cursor.fetchall()]
+        if "title" not in columns:
+            try:
+                self.cursor.execute("ALTER TABLE scraped_urls ADD COLUMN title TEXT")
+            except sqlite3.Error:
+                pass
+                
         self.conn.commit()
 
     def _ensure_output_folder(self):
@@ -89,7 +100,9 @@ class ScraperEngine:
         return self.selectors.get(key)
     
     def extract_project_id(self, url):
-        match = re.search(r'/(g-p-[a-zA-Z0-9-]+)', url)
+        """Extracts the Project ID (g-p-UUID) from a URL, ignoring the name slug."""
+        # UUID is typically 32 hex chars. We match g-p- followed by hex chars.
+        match = re.search(r'(g-p-[a-f0-9]{32})', url)
         return match.group(1) if match else None
 
     def scroll_main_chat(self, page):
@@ -100,22 +113,19 @@ class ScraperEngine:
             page.keyboard.press("End")
             time.sleep(1)
             
-            js = (
-                "() => {"
-                "const mainScroll = document.querySelector('main div.overflow-y-auto');"
-                "if (mainScroll) { mainScroll.scrollTop = 0; }"
-                "}"
-            )
-            page.evaluate(js)
+            page.evaluate("""() => {
+                const mainScroll = document.querySelector('main div.overflow-y-auto');
+                if (mainScroll) {
+                    mainScroll.scrollTop = 0;
+                }
+            }""")
             time.sleep(1)
-            
-            js2 = (
-                "() => {"
-                "const mainScroll = document.querySelector('main div.overflow-y-auto');"
-                "if (mainScroll) { mainScroll.scrollTop = mainScroll.scrollHeight; }"
-                "}"
-            )
-            page.evaluate(js2)
+            page.evaluate("""() => {
+                const mainScroll = document.querySelector('main div.overflow-y-auto');
+                if (mainScroll) {
+                    mainScroll.scrollTop = mainScroll.scrollHeight;
+                }
+            }""")
             time.sleep(1)
         except:
             pass
@@ -161,43 +171,33 @@ class ScraperEngine:
         return 0, None
 
     def find_scrollable_container(self, page):
-        js = (
-            "() => {"
-            "const allDivs = Array.from(document.querySelectorAll('div'));"
-            "return allDivs.filter(el => {"
-            "    const style = window.getComputedStyle(el);"
-            "    const isOverflow = style.overflowY === 'auto' || style.overflowY === 'scroll';"
-            "    const hasScroll = el.scrollHeight > el.clientHeight;"
-            "    const isLarge = el.clientHeight > 300;"
-            "    const rect = el.getBoundingClientRect();"
-            "    const isRightSide = rect.left > (window.innerWidth * 0.5); "
-            "    return hasScroll && isLarge && isRightSide;"
-            "}).sort((a, b) => b.scrollHeight - a.scrollHeight)[0];"
-            "}"
-        )
-        handle = page.evaluate_handle(js)
+        handle = page.evaluate_handle("""() => {
+            const allDivs = Array.from(document.querySelectorAll('div'));
+            return allDivs.filter(el => {
+                const style = window.getComputedStyle(el);
+                const isOverflow = style.overflowY === 'auto' || style.overflowY === 'scroll';
+                const hasScroll = el.scrollHeight > el.clientHeight;
+                const isLarge = el.clientHeight > 300;
+                const rect = el.getBoundingClientRect();
+                const isRightSide = rect.left > (window.innerWidth * 0.5); 
+                return hasScroll && isLarge && isRightSide;
+            }).sort((a, b) => b.scrollHeight - a.scrollHeight)[0];
+        }""")
         return handle.as_element() if handle else None
 
     def expand_nested_groups(self, page, container_locator):
         try:
-            js1 = (
-                "container => {"
-                "container.querySelectorAll('details:not([open]) > summary').forEach(el => el.click());"
-                "}"
-            )
-            container_locator.evaluate(js1)
-            
-            js2 = (
-                'container => {'
-                'const toggles = Array.from(container.querySelectorAll("div[class*=\'group\'], div[role=\'button\']"));'
-                'toggles.forEach(el => {'
-                '    if (el.innerHTML.includes("svg") && !el.getAttribute("aria-expanded")) {'
-                '         el.click();'
-                '    }'
-                '});'
-                '}'
-            )
-            container_locator.evaluate(js2)
+            container_locator.evaluate("""container => {
+                container.querySelectorAll('details:not([open]) > summary').forEach(el => el.click());
+            }""")
+            container_locator.evaluate("""container => {
+                const toggles = Array.from(container.querySelectorAll('div[class*="group"], div[role="button"]'));
+                toggles.forEach(el => {
+                    if (el.innerHTML.includes('svg') && !el.getAttribute('aria-expanded')) {
+                         el.click();
+                    }
+                });
+            }""")
             time.sleep(1) 
         except Exception:
             pass
@@ -222,17 +222,22 @@ class ScraperEngine:
         if not isinstance(candidates, list): candidates = [candidates]
 
         target_container = None
-        for selector in candidates:
-            containers = page.locator(selector).all()
-            for c in containers:
-                if c.is_visible():
-                    target_container = c
-                    break
-            if target_container: break
-        
-        if not target_container:
-            handle = self.find_scrollable_container(page)
-            if handle: target_container = handle
+        for attempt in range(3):
+            for selector in candidates:
+                containers = page.locator(selector).all()
+                for c in containers:
+                    if c.is_visible():
+                        target_container = c
+                        break
+                if target_container: break
+            
+            if not target_container:
+                target_container = self.find_scrollable_container(page)
+            
+            if target_container: 
+                break
+            else:
+                time.sleep(1)
 
         if not target_container:
             print("  [Warning] No visible thought container found.")

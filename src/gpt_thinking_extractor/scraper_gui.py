@@ -23,12 +23,13 @@ class ScraperApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Chatbot Thought Scraper")
-        self.root.geometry("750x800")
+        self.root.geometry("750x850")
         
         self.is_running = False
         self.stop_event = threading.Event()
         self.engine = None
         self.global_scan_var = tk.BooleanVar(value=False)
+        self.sidebar_scan_var = tk.BooleanVar(value=False) # Sidebar scan opt-in
 
         # UI Construction
         config_frame = ttk.LabelFrame(root, text="Configuration", padding=10)
@@ -44,7 +45,8 @@ class ScraperApp:
         self.folder_entry.insert(0, OUTPUT_FOLDER_DEFAULT)
         self.folder_entry.grid(row=1, column=1, padx=5, sticky="ew")
         
-        ttk.Checkbutton(config_frame, text="Include Global Scan (Navigate Home)", variable=self.global_scan_var).grid(row=2, column=0, columnspan=2, sticky="w", pady=5)
+        ttk.Checkbutton(config_frame, text="Scan Project Sidebar (Find siblings)", variable=self.sidebar_scan_var).grid(row=2, column=0, columnspan=2, sticky="w", pady=2)
+        ttk.Checkbutton(config_frame, text="Include Global Scan (Navigate Home)", variable=self.global_scan_var).grid(row=3, column=0, columnspan=2, sticky="w", pady=2)
         
         ctrl_frame = ttk.Frame(root, padding=10)
         ctrl_frame.pack(fill="x", padx=10)
@@ -67,6 +69,7 @@ class ScraperApp:
         self.log_area.tag_config("success", foreground="green")
         self.log_area.tag_config("error", foreground="red")
         self.log_area.tag_config("warning", foreground="#cc6600")
+        self.log_area.tag_config("debug", foreground="gray")
 
     def log(self, message, level="info"):
         def _log():
@@ -96,14 +99,12 @@ class ScraperApp:
         self.start_btn.config(state="normal")
         self.stop_btn.config(state="disabled")
         self.url_entry.config(state="normal")
-        if self.engine:
-            self.engine.close()
+        if self.engine: self.engine.close()
         self.log("--- Process Stopped/Finished ---")
 
     def open_data_folder(self):
         folder = self.folder_entry.get()
-        if not os.path.exists(folder):
-            os.makedirs(folder)
+        if not os.path.exists(folder): os.makedirs(folder)
         if platform.system() == "Windows": os.startfile(folder)
         elif platform.system() == "Darwin": subprocess.Popen(["open", folder])
         else: subprocess.Popen(["xdg-open", folder])
@@ -112,195 +113,124 @@ class ScraperApp:
         dialog = Toplevel(self.root)
         dialog.title("Audit Results - Confirm Scrape")
         dialog.geometry("700x500")
-        
         ttk.Label(dialog, text="Select threads to scrape:").pack(pady=10)
-        
         canvas = tk.Canvas(dialog)
         scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
         scroll_frame = ttk.Frame(canvas)
-        
         scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
-        
         canvas.pack(side="left", fill="both", expand=True, padx=10)
         scrollbar.pack(side="right", fill="y")
-        
         vars = []
         for res in results:
             var = tk.BooleanVar(value=res['count'] > 0)
             vars.append((var, res))
-            title = res['title']
-            txt = f"{title} ({res['count']} thoughts)"
-            cb = ttk.Checkbutton(scroll_frame, text=txt, variable=var)
+            cb = ttk.Checkbutton(scroll_frame, text=f"{res['title']} ({res['count']} thoughts)", variable=var)
             cb.pack(anchor="w", padx=5, pady=2)
-            
         def on_confirm():
             selected = [v[1] for v in vars if v[0].get()]
             dialog.destroy()
-            self.log(f"✅ User confirmed {len(selected)} threads.", "success")
             t = threading.Thread(target=self.run_execution_pipeline, args=(selected,))
             t.daemon = True
             t.start()
-            
         def on_cancel():
             dialog.destroy()
-            self.log("🛑 Cancelled.", "warning")
             self.finish_scraping()
-
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(fill="x", pady=10)
         ttk.Button(btn_frame, text="Proceed", command=on_confirm).pack(side="right", padx=10)
         ttk.Button(btn_frame, text="Cancel", command=on_cancel).pack(side="right", padx=10)
 
     def run_audit_pipeline(self):
-        cdp_url = self.url_entry.get()
-        data_folder = self.folder_entry.get()
-        
         try:
-            self.engine = ScraperEngine(output_folder=data_folder)
-        except Exception as e:
-            self.log(f"Error initializing engine: {e}", "error")
-            self.root.after(0, self.finish_scraping)
-            return
+            self.engine = ScraperEngine(output_folder=self.folder_entry.get())
+            with sync_playwright() as p:
+                browser = p.chromium.connect_over_cdp(self.url_entry.get())
+                context = browser.contexts[0]
+                page = next((pg for pg in context.pages if "chatgpt.com" in pg.url), context.pages[0])
+                page.bring_to_front()
+                
+                all_chat_threads = {}
+                active_project_id = self.engine.extract_project_id(page.url)
+                self.log(f"📍 URL: {page.url}", "debug")
+                if active_project_id: self.log(f"🔒 Project Scope: {active_project_id}", "success")
+                
+                # --- PHASE 0: SIDEBAR SCAN (OPTIONAL) ---
+                if self.sidebar_scan_var.get():
+                    self.log("🔍 Scanning sidebar (Opt-in enabled)...", "info")
+                    try:
+                        page.wait_for_selector('nav', timeout=3000)
+                        links = page.locator(self.engine.get_selector("SIDEBAR_THREAD")).all()
+                        for link in links:
+                            href = link.get_attribute("href")
+                            title = link.inner_text().split('\n')[0]
+                            if href and "/c/" in href:
+                                # If we have a project scope, only include links matching that scope
+                                if active_project_id and active_project_id not in href: continue
+                                all_chat_threads["https://chatgpt.com" + href] = title
+                        self.log(f"   Found {len(all_chat_threads)} threads in sidebar.", "info")
+                    except Exception as e: self.log(f"Scan failed: {e}", "warning")
+                
+                # --- PHASE 1: CURRENT PAGE ---
+                if "/c/" in page.url:
+                     # Always include the current page if it's a thread
+                     all_chat_threads[page.url] = "Current Page"
+                elif not self.sidebar_scan_var.get():
+                     self.log("📄 Not on a thread page and Sidebar Scan is OFF.", "warning")
+                     messagebox.showwarning("Logic Error", "You are not on a chat thread page.\nPlease navigate to a thread or enable 'Scan Project Sidebar'.")
+                
+                if not all_chat_threads:
+                    self.log("⚠️ No threads found to audit.", "warning")
+                    self.root.after(0, self.finish_scraping)
+                    return
 
-        with sync_playwright() as p:
-            try:
-                browser = p.chromium.connect_over_cdp(cdp_url)
-            except Exception as e:
-                self.log(f"❌ Connection Failed: {e}", "error")
-                self.root.after(0, self.finish_scraping)
-                return
-
-            context = browser.contexts[0]
-            page = context.pages[0]
-            page.bring_to_front()
-            
-            # {url: title}
-            all_chat_threads = {}
-            active_project_id = self.engine.extract_project_id(page.url)
-            
-            if active_project_id:
-                self.log(f"🔒 Scoping to Project: {active_project_id}", "success")
-            
-            # --- PHASE 0: CONTEXT ---
-            current_url = page.url
-            if "/project/" in current_url or "/g/" in current_url:
-                try:
-                    page.wait_for_selector('nav', timeout=3000)
-                    thread_selector = self.engine.get_selector("SIDEBAR_THREAD")
-                    thread_links = page.locator(thread_selector).all()
-                    for link in thread_links:
-                        if self.stop_event.is_set(): break
-                        href = link.get_attribute("href")
-                        title = link.inner_text().split('\n')[0]
-                        if href and "/c/" in href:
-                            if active_project_id and active_project_id not in href:
-                                continue
-                            full_url = "https://chatgpt.com" + href if href.startswith("/") else href
-                            all_chat_threads[full_url] = title
-                    self.log(f"   Found {len(all_chat_threads)} threads in active project.", "info")
-                except Exception as e:
-                    self.log(f"   [Warning] Scan failed: {e}", "warning")
-            
-            if "/c/" in current_url:
-                 if not active_project_id or (active_project_id in current_url):
-                     self.log("📄 Active Thread Detected.", "success")
-                     all_chat_threads[current_url] = "Current Page"
-
-            # --- PHASE 2: AUDIT ---
-            if not all_chat_threads:
-                self.log("⚠️ No threads found to audit.", "warning")
-                self.root.after(0, self.finish_scraping)
-                return
-
-            self.log(f"🕵️ Auditing {len(all_chat_threads)} threads...", "info")
-            sorted_urls = sorted(list(all_chat_threads.keys()))
-            audit_results = []
-
-            for i, url in enumerate(sorted_urls):
-                if self.stop_event.is_set(): break
-                title = all_chat_threads[url]
-                self.log(f"   Auditing [{i+1}/{len(sorted_urls)}]: {title[:20]}...", "info")
-                try:
+                audit_results = []
+                for url, title in all_chat_threads.items():
+                    if self.stop_event.is_set(): break
                     page.goto(url)
-                    page.wait_for_load_state("domcontentloaded")
                     time.sleep(1.5)
                     count, sel = self.engine.audit_thread(page, url)
                     audit_results.append({"url": url, "title": title, "count": count, "selector": sel})
-                except Exception as e:
-                    self.log(f"   Audit failed for {url}: {e}", "error")
-
-            self.root.after(0, lambda: self.show_audit_dialog(audit_results))
+                
+                self.root.after(0, lambda: self.show_audit_dialog(audit_results))
+        except Exception as e:
+            self.log(f"Error: {e}", "error")
+            self.root.after(0, self.finish_scraping)
 
     def run_execution_pipeline(self, to_scrape):
-        cdp_url = self.url_entry.get()
-        with sync_playwright() as p:
-            try:
-                browser = p.chromium.connect_over_cdp(cdp_url)
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.connect_over_cdp(self.url_entry.get())
                 context = browser.contexts[0]
-                page = context.pages[0]
-                page.bring_to_front()
-            except Exception as e:
-                self.log(f"❌ Re-connection Failed: {e}", "error")
-                self.root.after(0, self.finish_scraping)
-                return
-
-            self.log(f"🚀 Starting Scrape of {len(to_scrape)} threads...", "success")
-            
-            for i, item in enumerate(to_scrape):
-                if self.stop_event.is_set(): break
-                url = item["url"]
-                sel = item["selector"]
-                title = item["title"]
+                page = next((pg for pg in context.pages if "chatgpt.com" in pg.url), context.pages[0])
                 
-                if self.engine.is_url_scraped(url):
-                    self.log(f"Skipping: {title}", "info")
-                    continue
-
-                self.log(f"[{i+1}/{len(to_scrape)}] Processing: {title}", "info")
-                try:
-                    page.goto(url)
-                    page.wait_for_load_state("domcontentloaded")
-                    time.sleep(2) 
-
-                    if not sel:
-                        candidates = self.engine.get_selector("THOUGHT_TOGGLE_CANDIDATES")
-                        sel = candidates[0] if isinstance(candidates, list) else candidates
-
-                    unique_toggles = self.engine.get_unique_toggles(page, sel)
+                for item in to_scrape:
+                    if self.stop_event.is_set(): break
+                    if self.engine.is_url_scraped(item['url']): continue
+                    self.log(f"Processing: {item['title']}")
+                    page.goto(item['url'])
+                    time.sleep(2)
                     
-                    if not unique_toggles:
-                         self.log(f"  No visible thoughts found using {sel}", "warning")
-                    else:
-                         for idx, toggle in enumerate(unique_toggles):
-                            if self.stop_event.is_set(): break
-                            
-                            duration = "Unknown"
-                            try:
-                                duration = toggle.inner_text().split('\n')[0].strip() or "Unknown"
-                            except:
-                                pass
-
-                            toggle.scroll_into_view_if_needed()
-                            toggle.click(force=True)
-                            page.wait_for_timeout(1000)
-                            
-                            try:
-                                data = self.engine.extract_structured_content(page)
-                                if data and (data.get("timeline") or data.get("meta", {}).get("fallback")):
-                                    saved_path = self.engine.save_thought(url, idx, data, duration=duration)
-                                    if saved_path:
-                                        self.log(f"  [Saved] {os.path.basename(saved_path)} (Duration: {duration})", "success")
-                                else:
-                                    self.log(f"  [Warning] Extracted data empty.", "warning")
-                            except Exception as e:
-                                self.log(f"  Extraction timeout: {e}", "error")
-                                
-                    self.engine.mark_url_scraped(url, title)
-                except Exception as e:
-                    self.log(f"  Error on thread: {e}", "error")
-
+                    unique_toggles = self.engine.get_unique_toggles(page, item['selector'] or self.engine.get_selector("THOUGHT_TOGGLE_CANDIDATES")[0])
+                    for idx, toggle in enumerate(unique_toggles):
+                        if self.stop_event.is_set(): break
+                        duration = "Unknown"
+                        try: duration = toggle.inner_text().split('\n')[0].strip() or "Unknown"
+                        except: pass
+                        
+                        toggle.scroll_into_view_if_needed()
+                        toggle.click(force=True)
+                        page.wait_for_timeout(1000)
+                        
+                        data = self.engine.extract_structured_content(page)
+                        if data:
+                            self.engine.save_thought(item['url'], idx, data, duration=duration)
+                            self.log(f"  [Saved] thought_{idx}.json ({duration})", "success")
+                    self.engine.mark_url_scraped(item['url'], item['title'])
+                self.root.after(0, self.finish_scraping)
+        except Exception as e:
+            self.log(f"Error: {e}", "error")
             self.root.after(0, self.finish_scraping)
 
 def main():

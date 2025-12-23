@@ -13,7 +13,10 @@
     "div.h-full.flex.flex-col.overflow-y-auto",
     "div.flex.flex-col.overflow-y-auto"
   ],
-  "THOUGHT_CONTENT": "div.text-token-text-secondary.markdown.prose",
+  "THOUGHT_ROW_CANDIDATES": [
+    "div.relative.flex.w-full.items-start.gap-2",
+    "div.text-token-text-secondary"
+  ],
   "THOUGHT_ROW": "div.relative.flex.w-full.items-start.gap-2",
   "THOUGHT_TEXT_SECONDARY": "div.text-token-text-secondary",
   "THOUGHT_CODE_CONTAINER": "div.mt-1",
