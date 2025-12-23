@@ -268,33 +268,32 @@ class ScraperApp:
                         candidates = self.engine.get_selector("THOUGHT_TOGGLE_CANDIDATES")
                         sel = candidates[0] if isinstance(candidates, list) else candidates
 
-                    # Force visibility check again just in case
                     unique_toggles = self.engine.get_unique_toggles(page, sel)
                     
                     if not unique_toggles:
                          self.log(f"  No visible thoughts found using {sel}", "warning")
                     else:
-                         content_selector = self.engine.get_selector("THOUGHT_CONTENT")
                          for idx, toggle in enumerate(unique_toggles):
                             if self.stop_event.is_set(): break
+                            
+                            duration = "Unknown"
+                            try:
+                                duration = toggle.inner_text().split('\n')[0].strip() or "Unknown"
+                            except:
+                                pass
+
                             toggle.scroll_into_view_if_needed()
                             toggle.click(force=True)
-                            
-                            # Increased wait for expansion
                             page.wait_for_timeout(1000)
                             
                             try:
-                                # Wait for content to be visible
-                                page.wait_for_selector(content_selector, state="visible", timeout=5000)
-                                full_text = self.engine.extract_ordered_content(page)
-                                
-                                if full_text:
-                                    saved_path = self.engine.save_thought(url, idx, full_text)
+                                data = self.engine.extract_structured_content(page)
+                                if data and (data.get("timeline") or data.get("meta", {}).get("fallback")):
+                                    saved_path = self.engine.save_thought(url, idx, data, duration=duration)
                                     if saved_path:
-                                        self.log(f"  [Saved] {os.path.basename(saved_path)}", "success")
+                                        self.log(f"  [Saved] {os.path.basename(saved_path)} (Duration: {duration})", "success")
                                 else:
-                                    self.log(f"  [Warning] Extracted text empty.", "warning")
-                                    
+                                    self.log(f"  [Warning] Extracted data empty.", "warning")
                             except Exception as e:
                                 self.log(f"  Extraction timeout: {e}", "error")
                                 

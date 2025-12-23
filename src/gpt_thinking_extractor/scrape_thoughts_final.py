@@ -35,21 +35,20 @@ def scrape_page_thoughts(page, thread_url, engine, selector=None):
 
     for index, toggle in enumerate(unique_toggles):
         try:
+            duration = toggle.inner_text().split('\n')[0].strip()
+            
             toggle.scroll_into_view_if_needed()
             toggle.click(force=True)
+            page.wait_for_timeout(1000)
             
-            # Wait for content to appear (Mutation await)
-            content_selector = engine.get_selector("THOUGHT_CONTENT")
             try:
-                page.wait_for_selector(content_selector, state="visible", timeout=5000)
+                # Extract structured JSON data
+                data = engine.extract_structured_content(page)
                 
-                # Extract all content nodes for this block, sorted chronologically
-                full_text = engine.extract_ordered_content(page)
-                
-                if full_text:
-                    saved_path = engine.save_thought(thread_url, index, full_text)
+                if data and (data.get("timeline") or data.get("meta", {}).get("fallback")):
+                    saved_path = engine.save_thought(thread_url, index, data, duration=duration)
                     if saved_path:
-                        print(f"  [Saved] {saved_path}")
+                        print(f"  [Saved] {saved_path} (Duration: {duration})")
                 else:
                     print(f"  [Warning] Thought block {index} was empty.")
                     
@@ -95,9 +94,7 @@ def run():
                 thread_links = page.locator(thread_selector).all()
                 for link in thread_links:
                     href = link.get_attribute("href")
-                    # Capture title (text of the link)
                     title = link.inner_text().split('\n')[0]
-                    
                     if href and "/c/" in href:
                         if active_project_id and active_project_id not in href:
                             continue

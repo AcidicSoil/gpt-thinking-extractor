@@ -29,13 +29,13 @@ class ScraperEngine:
             "PROJECT_PAGE_THREAD": 'main a[href*="/c/"]',
             "THOUGHT_TOGGLE_CANDIDATES": [
                 'div.truncate:has-text("Thought for")',
-                'button:has-text("Thought for")'
+                'button:has-text("Thought for")',
+                'div:has-text("Thought for")'
             ],
             "THOUGHT_CONTAINER_CANDIDATES": [
                 "div.h-full.flex.flex-col.overflow-y-auto",
                 "div.flex.flex-col.overflow-y-auto"
             ],
-            "THOUGHT_CONTENT": 'div.text-token-text-secondary.markdown.prose',
             "THOUGHT_ROW": "div.relative.flex.w-full.items-start.gap-2",
             "THOUGHT_TEXT_SECONDARY": "div.text-token-text-secondary",
             "THOUGHT_CODE_CONTAINER": "div.mt-1",
@@ -92,26 +92,64 @@ class ScraperEngine:
         match = re.search(r'/(g-p-[a-zA-Z0-9-]+)', url)
         return match.group(1) if match else None
 
+    def scroll_main_chat(self, page):
+        """Scrolls the main chat window to ensure all messages are loaded."""
+        try:
+            page.keyboard.press("Home")
+            time.sleep(1)
+            page.keyboard.press("End")
+            time.sleep(1)
+            
+            js = (
+                "() => {"
+                "const mainScroll = document.querySelector('main div.overflow-y-auto');"
+                "if (mainScroll) { mainScroll.scrollTop = 0; }"
+                "}"
+            )
+            page.evaluate(js)
+            time.sleep(1)
+            
+            js2 = (
+                "() => {"
+                "const mainScroll = document.querySelector('main div.overflow-y-auto');"
+                "if (mainScroll) { mainScroll.scrollTop = mainScroll.scrollHeight; }"
+                "}"
+            )
+            page.evaluate(js2)
+            time.sleep(1)
+        except:
+            pass
+
     def get_unique_toggles(self, page, selector):
+        self.scroll_main_chat(page)
+        
         all_elements = page.locator(selector).all()
         unique_elements = []
         seen_bounding_boxes = set()
 
         for el in all_elements:
-            if not el.is_visible():
+            try:
+                el.scroll_into_view_if_needed()
+                if not el.is_visible(): continue
+                
+                box = el.bounding_box()
+                if box:
+                    center = (box['x'] + box['width']/2, box['y'] + box['height']/2)
+                    found = False
+                    for existing in seen_bounding_boxes:
+                        if abs(existing[0] - center[0]) < 5 and abs(existing[1] - center[1]) < 5:
+                            found = True
+                            break
+                    if not found:
+                        seen_bounding_boxes.add(center)
+                        unique_elements.append(el)
+            except:
                 continue
-            box = el.bounding_box()
-            if box:
-                center = (box['x'] + box['width']/2, box['y'] + box['height']/2)
-                if center not in seen_bounding_boxes:
-                    seen_bounding_boxes.add(center)
-                    unique_elements.append(el)
         return unique_elements
 
     def audit_thread(self, page, thread_url):
         candidates = self.get_selector("THOUGHT_TOGGLE_CANDIDATES")
-        if not isinstance(candidates, list):
-            candidates = [candidates]
+        if not isinstance(candidates, list): candidates = [candidates]
 
         for selector in candidates:
             try:
@@ -122,33 +160,66 @@ class ScraperEngine:
                 continue
         return 0, None
 
-    def scroll_container(self, page, container_locator):
-        """
-        Scrolls the container to bottom to trigger lazy loading.
-        """
-        try:
-            if not container_locator.is_visible():
-                return
+    def find_scrollable_container(self, page):
+        js = (
+            "() => {"
+            "const allDivs = Array.from(document.querySelectorAll('div'));"
+            "return allDivs.filter(el => {"
+            "    const style = window.getComputedStyle(el);"
+            "    const isOverflow = style.overflowY === 'auto' || style.overflowY === 'scroll';"
+            "    const hasScroll = el.scrollHeight > el.clientHeight;"
+            "    const isLarge = el.clientHeight > 300;"
+            "    const rect = el.getBoundingClientRect();"
+            "    const isRightSide = rect.left > (window.innerWidth * 0.5); "
+            "    return hasScroll && isLarge && isRightSide;"
+            "}).sort((a, b) => b.scrollHeight - a.scrollHeight)[0];"
+            "}"
+        )
+        handle = page.evaluate_handle(js)
+        return handle.as_element() if handle else None
 
+    def expand_nested_groups(self, page, container_locator):
+        try:
+            js1 = (
+                "container => {"
+                "container.querySelectorAll('details:not([open]) > summary').forEach(el => el.click());"
+                "}"
+            )
+            container_locator.evaluate(js1)
+            
+            js2 = (
+                'container => {'
+                'const toggles = Array.from(container.querySelectorAll("div[class*=\'group\'], div[role=\'button\']"));'
+                'toggles.forEach(el => {'
+                '    if (el.innerHTML.includes("svg") && !el.getAttribute("aria-expanded")) {'
+                '         el.click();'
+                '    }'
+                '});'
+                '}'
+            )
+            container_locator.evaluate(js2)
+            time.sleep(1) 
+        except Exception:
+            pass
+
+    def scroll_container(self, page, container_locator):
+        try:
             previous_height = 0
-            for _ in range(5):
+            for _ in range(10): 
                 container_locator.evaluate("el => el.scrollTop = el.scrollHeight")
                 time.sleep(0.5)
-                
                 new_height = container_locator.evaluate("el => el.scrollHeight")
                 if new_height == previous_height:
-                    break 
+                    time.sleep(0.5)
+                    final = container_locator.evaluate("el => el.scrollHeight")
+                    if final == new_height: break 
                 previous_height = new_height
-        except Exception as e:
-            print(f"  [Warning] Scroll failed: {e}")
+        except Exception:
+            pass
 
-    def extract_ordered_content(self, page):
-        """
-        Scrolls the thought container and extracts content row-by-row.
-        """
+    def extract_structured_content(self, page):
         candidates = self.get_selector("THOUGHT_CONTAINER_CANDIDATES")
-        if not isinstance(candidates, list):
-            candidates = [candidates]
+        if not isinstance(candidates, list): candidates = [candidates]
 
         target_container = None
         for selector in candidates:
@@ -157,50 +228,88 @@ class ScraperEngine:
                 if c.is_visible():
                     target_container = c
                     break
-            if target_container:
-                break
+            if target_container: break
         
-        # Fallback to generic if specific candidates fail but we see *something*
-        # (This logic is implicit in trying the list)
+        if not target_container:
+            handle = self.find_scrollable_container(page)
+            if handle: target_container = handle
 
-        if target_container:
-            self.scroll_container(page, target_container)
-        else:
-            print("  [Warning] No visible thought container found to scroll.")
+        if not target_container:
+            print("  [Warning] No visible thought container found.")
+            return None
+
+        # --- The Scroll-Scrape Loop ---
+        self.expand_nested_groups(page, target_container)
+        
+        timeline = []
+        seen_content_hashes = set()
         
         row_selector = self.get_selector("THOUGHT_ROW")
-        rows = page.locator(row_selector).all()
         
-        extracted_text = []
-        
-        for row in rows:
-            if not row.is_visible():
-                continue
-                
-            try:
-                code_container_sel = self.get_selector("THOUGHT_CODE_CONTAINER")
-                is_code = row.locator(code_container_sel).count() > 0
-                
-                if is_code:
-                    desc_sel = self.get_selector("THOUGHT_TEXT_SECONDARY")
-                    description = row.locator(desc_sel).first.inner_text().strip()
-                    
-                    payload_sel = f"{code_container_sel} {self.get_selector('THOUGHT_CODE_PAYLOAD')}"
-                    code = row.locator(payload_sel).first.inner_text()
-                    
-                    block = f"[CODE EXECUTION]\nDescription: {description}\nCommand:\n```\n{code}\n```"
-                    extracted_text.append(block)
-                else:
-                    text_sel = self.get_selector("THOUGHT_TEXT_SECONDARY")
-                    text = row.locator(text_sel).first.inner_text().strip()
-                    extracted_text.append(text)
-                    
-            except Exception:
-                continue
-        
-        return "\n\n".join(extracted_text)
+        try:
+            target_container.evaluate("el => el.scrollTop = 0")
+            time.sleep(0.5)
+        except: pass
 
-    def save_thought(self, thread_id_or_url, thought_index, text):
+        previous_scroll_top = -1
+        
+        while True:
+            rows = page.locator(row_selector).all()
+            for row in rows:
+                if not row.is_visible(): continue
+                try:
+                    content_hash = ""
+                    item = {}
+                    
+                    code_container_sel = self.get_selector("THOUGHT_CODE_CONTAINER")
+                    is_code = row.locator(code_container_sel).count() > 0
+                    
+                    if is_code:
+                        desc_sel = self.get_selector("THOUGHT_TEXT_SECONDARY")
+                        description = row.locator(desc_sel).first.inner_text().strip()
+                        payload_sel = f"{code_container_sel} {self.get_selector('THOUGHT_CODE_PAYLOAD')}"
+                        code = row.locator(payload_sel).first.inner_text()
+                        
+                        item = {"type": "tool_use", "tool_name": "bash" if "bash" in description.lower() else "unknown", "description": description, "command": code}
+                        content_hash = f"code:{description}:{code[:50]}"
+                    else:
+                        text_sel = self.get_selector("THOUGHT_TEXT_SECONDARY")
+                        text = row.locator(text_sel).first.inner_text().strip()
+                        if text:
+                            item = {"type": "thought", "content": text}
+                            content_hash = f"thought:{text[:50]}"
+                    
+                    if content_hash and content_hash not in seen_content_hashes:
+                        seen_content_hashes.add(content_hash)
+                        timeline.append(item)
+                except:
+                    continue
+
+            try:
+                current_scroll = target_container.evaluate("el => el.scrollTop")
+                if current_scroll == previous_scroll_top:
+                    break 
+                
+                previous_scroll_top = current_scroll
+                target_container.evaluate("el => el.scrollBy(0, 500)")
+                time.sleep(0.5) 
+                
+                at_bottom = target_container.evaluate("el => Math.abs(el.scrollHeight - el.scrollTop - el.clientHeight) < 1")
+                if at_bottom:
+                    pass 
+                
+            except Exception:
+                break
+
+        if not timeline:
+             try:
+                 raw = target_container.evaluate("el => el.innerText") if hasattr(target_container, 'evaluate') else target_container.inner_text()
+                 return {"meta": {"fallback": True}, "timeline": [{"type": "raw", "content": raw}]}
+             except: pass
+
+        return {"meta": {"count": len(timeline)}, "timeline": timeline}
+
+    def save_thought(self, thread_id_or_url, thought_index, data, duration=None):
         if "/c/" in thread_id_or_url:
             raw_id = thread_id_or_url.split("/c/")[-1]
         else:
@@ -210,10 +319,20 @@ class ScraperEngine:
         folder_path = os.path.join(self.output_folder, safe_id)
         os.makedirs(folder_path, exist_ok=True)
         
-        filename = os.path.join(folder_path, f"thought_{thought_index}.txt")
+        filename = os.path.join(folder_path, f"thought_{thought_index}.json")
+        
+        output = {
+            "meta": {
+                "duration": duration,
+                "url": thread_id_or_url,
+                "scraped_at": time.time()
+            },
+            **data 
+        }
+        
         try:
             with open(filename, "w", encoding="utf-8") as f:
-                f.write(text)
+                json.dump(output, f, indent=2)
             return filename
         except OSError as e:
             print(f"[Error] Failed to save file {filename}: {e}")
